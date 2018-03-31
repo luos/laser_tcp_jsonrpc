@@ -70,7 +70,7 @@ process_messages(Socket, Receiver, [Msg | Messages]) ->
         end,
         process_messages(Socket, Receiver, Messages).
 
-process(Receiver, {invalid, Msg}) -> 
+process(_Receiver, {invalid, Msg}) -> 
     {reply, 
         error(undefined, <<"unexpected message: ", Msg>>)
     };
