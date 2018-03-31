@@ -10,7 +10,8 @@
 
 -record(state, {
     socket,
-    workspace
+    receiver,
+    parse_state
 }).
 
 send_error(Connection, ErrorCode, Message)->
@@ -20,10 +21,11 @@ init(LS, ReceiverFn) ->
     case gen_tcp:accept(LS) of
         {ok,S} ->
             lager:info("Accepted listen sock connection"),
-            {ok, WorkspacePid} = ReceiverFn(self()),
+            {ok, ReceiverPid} = ReceiverFn(self()),
             loop(#state{
                 socket = S,
-                workspace = WorkspacePid
+                receiver = ReceiverPid,
+                parse_state = laser_jsonrpc_parser:empty_parse_state()
             }),
             init(LS, ReceiverFn);
         Other ->
@@ -31,20 +33,20 @@ init(LS, ReceiverFn) ->
             ok
     end.
 
-loop(State = #state{socket = Socket,workspace = Workspace}) ->
+loop(State = #state{socket = Socket,
+                    receiver = Receiver,
+                    parse_state = ParseState}) ->
     inet:setopts(Socket,[{active,once}]),
     receive
         {tcp,Socket,Data} ->
-            lager:info("~p: Got data: ~s ~p ~p",[Socket, binary_to_list(Data), State, Workspace]),
-            Answer = process(Workspace, Data),
-            case Answer of 
-                noreply -> 
-                    lager:info("Ignored  msg"),
-                    ok;
-                {reply, Reply} -> send_message(Socket, Reply);
-                unknown_message -> send_message(Socket, <<"invalid message">>)
-            end,
-            loop(State);
+            lager:info("~p: Got data: ~s ~p ~p",[Socket, binary_to_list(Data), State, Receiver]),
+            case laser_jsonrpc_parser:process(Data, ParseState) of 
+                {Messages, ParseState2} -> 
+                    process_messages(Socket, Receiver, Messages),
+                    loop(State#state{
+                        parse_state = ParseState2
+                    })     
+            end;
         {tcp_closed,Socket} ->
             io:format("Socket ~w closed [~w]~n",[Socket,self()]),
             ok;
@@ -55,16 +57,32 @@ loop(State = #state{socket = Socket,workspace = Workspace}) ->
         Unknown -> lager:info("Unknown message ~p",[Unknown])
     end.
 
-process(_Ws, <<"Content-Length:", _/binary>>) -> noreply;
+process_messages(_, _, []) -> ok;
 
-process(Workspace, Data) -> 
+process_messages(Socket, Receiver, [Msg | Messages]) -> 
+        Answer = process(Receiver, Msg),
+        case Answer of 
+            noreply -> 
+                lager:info("Ignored  msg"),
+                ok;
+            {reply, Reply} -> send_message(Socket, Reply);
+            unknown_message -> send_message(Socket, <<"Unknown message">>)
+        end,
+        process_messages(Socket, Receiver, Messages).
+
+process(Receiver, {invalid, Msg}) -> 
+    {reply, 
+        error(undefined, <<"unexpected message: ", Msg>>)
+    };
+
+process(Receiver, Data) -> 
         try jsx:decode(Data) of
             Decoded -> 
-                lager:info("Got data: ~p sendng to wp: ~p",[Decoded, Workspace]),
+                lager:info("Got data: ~p sendng to wp: ~p",[Decoded, Receiver]),
                 Method = proplists:get_value(<<"method">>, Decoded),
                 Params = proplists:get_value(<<"params">>, Decoded),
                 Id = proplists:get_value(<<"id">>, Decoded),
-                Response = case laser_workspace:call(Workspace, Method, Params) of 
+                Response = case call(Receiver, Method, Params) of 
                     {ok, Result} -> result(Id, Result);
                     unknown_message -> error(Id, <<"invalid_message">>)
                 end,
@@ -83,7 +101,12 @@ error(Id, Result) -> [{<<"error">>, Result}, {<<"id">>, Id}, {<<"jsonrpc">>, <<"
 
 send_message(Socket, Message) ->
     Encoded = jsx:encode(Message),
-    lager:info("Sending error...~p",[Encoded]),
+    lager:info("Sending message...~p",[Encoded]),
     ContentLength = io_lib:format("Content-Length: ~w\r\n\r\n", [size(Encoded)]),
     gen_tcp:send(Socket, ContentLength),
     gen_tcp:send(Socket, Encoded).
+
+
+
+call(Receiver, Method, Params) ->
+  gen_server:call(Receiver, {method_call, {Method, Params}}).

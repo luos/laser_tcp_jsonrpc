@@ -30,7 +30,7 @@ init([LPort, ReceiverCreatorFn]) ->
       {error, Reason}
   end.
 
-start_servers(0, _, ReceiverCreatorFn) ->
+start_servers(0, _, _ReceiverCreatorFn) ->
   ok;
 start_servers(Num, LS, ReceiverCreatorFn) ->
   spawn(laser_tcp_handler, init, [LS, ReceiverCreatorFn]),
