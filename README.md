@@ -1,7 +1,10 @@
 laser_tcp_jsonrpc
 =====
 
-An OTP library
+This library aims to be a JSON-RPC protocol parser handling packages coming through a TCP connection. 
+
+Not production ready. 
+
 
 Build
 -----
