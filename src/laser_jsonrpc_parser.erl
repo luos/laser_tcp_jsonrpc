@@ -5,34 +5,16 @@
     empty_parse_state/0
 ]).
 
--type message() :: [
-  {headers, [term()]}
-].
--type packet_state() :: term().
+-export_type([
+  parse_state/0,
+  parsed_message/0
+]).
 
-get_num(<<N:8, Rest/binary>>, Acc) when N >= $0, N =< $9 ->
-  get_num(Rest, [N | Acc]);
+-type parse_state() :: {integer(), binary()}.
+-type parsed_message() :: {invalid, binary()} | binary().
 
-get_num(Rest, Acc) ->
-  {list_to_integer(lists:reverse(Acc)), Rest}.
-
-take_until(Binary, Match) when is_binary(Binary), is_binary(Match) -> 
-  take_until(Binary, Match, 0).
-
-take_until(Bin, Match, Beginning) -> 
-  MatchSize = size(Match),
-  case Bin of 
-    <<Start:Beginning/binary, Match:MatchSize/binary, Rest/binary>> -> 
-      {Start, Rest};
-      <<_Start:Beginning/binary, _Rest/binary>> ->
-        take_until(Bin, Match, Beginning + 1);
-      Bin -> 
-        {Bin, <<>>}
-  end.
-
--spec process(Packet :: binary(), PacketState :: packet_state()) -> {
-    Messages :: [message()], packet_state()
-}.  
+-spec process(binary(), parse_state()) 
+                  -> {[parsed_message()], parse_state()}.
 process(NewData, {MsgSize, Buffer}) -> 
     case process_packet([], MsgSize, <<Buffer/binary, NewData/binary>>) of 
         {Msgs, State} -> {lists:reverse(Msgs), State}
@@ -65,11 +47,10 @@ process_packet(ParsedMessages, MsgSize, Rest)
       Rest3 when size(Rest3) > 0 -> 
           process_packet(Msgs, 0, Rest3);
       _ -> {Msgs, {0, <<>>}}
-  end;
+  end.
 
-process_packet(ok, NewData, {LeftBytes, ParsedData, LeftOver}) ->
-  AllData = remove_newlines(erlang:iolist_to_binary([LeftOver, NewData])),
-  process_packet(ok, AllData, {LeftBytes, ParsedData}).
+-spec empty_parse_state() -> parse_state().
+empty_parse_state() -> {0, <<>>}.
 
 remove_newlines(<<$\r, $\n, Rest/binary>>) ->
   remove_newlines(Rest);
@@ -77,4 +58,25 @@ remove_newlines(<<$\r, $\n, Rest/binary>>) ->
 remove_newlines(<<Rest/binary>>) ->
   Rest.
 
-empty_parse_state() -> {0, <<>>}.
+get_num(<<N:8, Rest/binary>>, Acc) when N >= $0, N =< $9 ->
+  get_num(Rest, [N | Acc]);
+
+get_num(Rest, Acc) ->
+  {list_to_integer(lists:reverse(Acc)), Rest}.
+
+take_until(Binary, Match) when is_binary(Binary), is_binary(Match) -> 
+  take_until(Binary, Match, 0).
+
+take_until(Bin, Match, Beginning) -> 
+  MatchSize = size(Match),
+  case Bin of 
+    <<Start:Beginning/binary, Match:MatchSize/binary, Rest/binary>> -> 
+      {Start, Rest};
+      <<_Start:Beginning/binary, _Rest/binary>> ->
+        take_until(Bin, Match, Beginning + 1);
+      Bin -> 
+        {Bin, <<>>}
+  end.
+
+
+

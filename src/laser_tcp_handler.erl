@@ -10,8 +10,8 @@
 
 -record(state, {
     socket,
-    receiver,
-    parse_state
+    receiver :: pid(),
+    parse_state :: laser_jsonrpc_parser:parse_state()
 }).
 
 send_error(Connection, ErrorCode, Message)->
@@ -22,6 +22,7 @@ init(LS, ReceiverFn) ->
         {ok,S} ->
             lager:info("Accepted listen sock connection"),
             {ok, ReceiverPid} = ReceiverFn(self()),
+            lager:info("Bleh ~p",[ReceiverPid]),
             loop(#state{
                 socket = S,
                 receiver = ReceiverPid,
@@ -63,38 +64,40 @@ process_messages(Socket, Receiver, [Msg | Messages]) ->
         Answer = process(Receiver, Msg),
         case Answer of 
             noreply -> 
-                lager:info("Ignored  msg"),
                 ok;
-            {reply, Reply} -> send_message(Socket, Reply);
-            unknown_message -> send_message(Socket, <<"Unknown message">>)
+            {reply, Reply} -> send_message(Socket, Reply)
         end,
         process_messages(Socket, Receiver, Messages).
 
+
+process(_Receiver, {invalid, <<>>}) -> 
+  noreply;
+
 process(_Receiver, {invalid, Msg}) -> 
     {reply, 
-        error(undefined, <<"unexpected message: ", Msg>>)
+        error(undefined, <<"unexpected message: ", Msg/binary>>)
     };
 
 process(Receiver, Data) -> 
-        try jsx:decode(Data) of
-            Decoded -> 
-                lager:info("Got data: ~p sendng to wp: ~p",[Decoded, Receiver]),
-                Method = proplists:get_value(<<"method">>, Decoded),
-                Params = proplists:get_value(<<"params">>, Decoded),
-                Id = proplists:get_value(<<"id">>, Decoded),
-                Response = case call(Receiver, Method, Params) of 
-                    {ok, Result} -> result(Id, Result);
-                    unknown_message -> error(Id, <<"invalid_message">>)
-                end,
-                lager:info("Got response: ~p",[Response]),
-                {reply, 
-                    Response
-                }
-        catch
-            error:badarg ->
-                lager:error("Couldn't decode json: ~p",[Data]),
-                noreply
-        end.
+    try jsx:decode(Data) of
+        Decoded -> 
+            lager:info("Got data: ~p sendng to wp: ~p",[Decoded, Receiver]),
+            Method = proplists:get_value(<<"method">>, Decoded),
+            Params = proplists:get_value(<<"params">>, Decoded),
+            Id = proplists:get_value(<<"id">>, Decoded),
+            Response = case call(Receiver, Method, Params) of 
+                {ok, Result} -> result(Id, Result);
+                unknown_message -> error(Id, <<"invalid_message">>)
+            end,
+            lager:info("Got response: ~p",[Response]),
+            {reply, 
+                Response
+            }
+    catch
+        error:badarg ->
+            lager:error("Couldn't decode json: ~p",[Data]),
+            noreply
+    end.
 
 result(Id, Result) -> [{<<"result">>, Result}, {<<"id">>, Id}, {<<"jsonrpc">>, <<"2.0">>}].
 error(Id, Result) -> [{<<"error">>, Result}, {<<"id">>, Id}, {<<"jsonrpc">>, <<"2.0">>}].

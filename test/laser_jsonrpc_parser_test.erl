@@ -1,4 +1,4 @@
--module(packet_parser_test).
+-module(laser_jsonrpc_parser_test).
 -include_lib("eunit/include/eunit.hrl").
 
 packet_parser_test_() ->
