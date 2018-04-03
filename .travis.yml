@@ -1,8 +1,6 @@
 language: erlang
 otp_release:
   - 20.0
-  - 19.0
-  - 18.2.1
 script:
   - rebar3 eunit
   - rebar3 dialyzer
