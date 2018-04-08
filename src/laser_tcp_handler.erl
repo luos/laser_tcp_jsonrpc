@@ -86,13 +86,13 @@ process(Receiver, Data) ->
             Params = proplists:get_value(<<"params">>, Decoded),
             Id = proplists:get_value(<<"id">>, Decoded),
             Response = case call(Receiver, Method, Params) of 
-                {ok, Result} -> result(Id, Result);
-                unknown_message -> error(Id, <<"invalid_message">>)
+                {ok, Result} -> 
+                    {reply, result(Id, Result)};
+                noreply -> noreply;
+                unknown_message -> {reply, error(Id, <<"invalid_message">>)}
             end,
             lager:info("Got response: ~p",[Response]),
-            {reply, 
-                Response
-            }
+            Response
     catch
         error:badarg ->
             lager:error("Couldn't decode json: ~p",[Data]),
